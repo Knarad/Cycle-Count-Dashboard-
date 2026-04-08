@@ -1,1 +1,980 @@
-# Cycle-Count-Dashboard-
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cycle Count Dashboard</title>
+
+  <!-- Core libraries -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js" crossorigin></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.12.7/Recharts.min.js" crossorigin></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" crossorigin></script>
+  <!-- Babel for JSX compilation -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.4/babel.min.js" crossorigin></script>
+
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body { background: #0d0d1f; color: #e8e8f0; font-family: "DM Sans", system-ui, sans-serif; }
+    #root { min-height: 100vh; }
+    #loading-screen {
+      position: fixed; inset: 0; background: #0d0d1f;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 12px; z-index: 9999;
+    }
+    #loading-screen p { color: #555; font-size: 14px; font-family: "DM Sans", system-ui; }
+    #loading-screen .icon { font-size: 40px; }
+    #loading-screen .title { color: #e8e8f0; font-size: 16px; font-weight: 500; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0d0d1f; }
+    ::-webkit-scrollbar-thumb { background: #2a2a50; border-radius: 3px; }
+  </style>
+</head>
+<body>
+
+  <!-- Shown while Babel compiles and app loads -->
+  <div id="loading-screen">
+    <div class="icon">&#128202;</div>
+    <div class="title">Cycle Count Dashboard</div>
+    <p>Loading&#8230;</p>
+  </div>
+
+  <div id="root"></div>
+
+  <script>
+    // Hide loading screen once React mounts
+    window.__hideLoader = function() {
+      var el = document.getElementById('loading-screen');
+      if (el) el.style.display = 'none';
+    };
+  </script>
+
+  <script type="text/babel" data-type="module">
+const { useState, useEffect, useCallback, useRef } = React;
+const { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } = Recharts;
+  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid,
+  Tooltip, ResponsiveContainer, ReferenceLine
+} from "recharts";
+
+// ── Fiscal calendars ──────────────────────────────────────────────────────────
+// To add the real 2024 calendar once you have it, replace the 2024 entry below
+// with the correct Monday-anchored boundaries from your planning calendar file.
+const FISCAL = {
+  2024: [
+    // Verified against 2024 Planning Calendar (5-week March; Jan 1, Good Friday, Memorial Day, Jul 4, Labor Day, Thanksgiving, Christmas holidays)
+    { month:"F. January",   start:new Date(2024,0,2),   end:new Date(2024,0,22)  },
+    { month:"F. February",  start:new Date(2024,0,22),  end:new Date(2024,1,19)  },
+    { month:"F. March",     start:new Date(2024,1,19),  end:new Date(2024,2,25)  },
+    { month:"F. April",     start:new Date(2024,2,25),  end:new Date(2024,3,22)  },
+    { month:"F. May",       start:new Date(2024,3,22),  end:new Date(2024,4,20)  },
+    { month:"F. June",      start:new Date(2024,4,20),  end:new Date(2024,5,24)  },
+    { month:"F. July",      start:new Date(2024,5,24),  end:new Date(2024,6,22)  },
+    { month:"F. August",    start:new Date(2024,6,22),  end:new Date(2024,7,19)  },
+    { month:"F. September", start:new Date(2024,7,19),  end:new Date(2024,8,23)  },
+    { month:"F. October",   start:new Date(2024,8,23),  end:new Date(2024,9,21)  },
+    { month:"F. November",  start:new Date(2024,9,21),  end:new Date(2024,10,25) },
+    { month:"F. December",  start:new Date(2024,10,25), end:new Date(2025,0,1)   },
+  ],
+  2025: [
+    // Verified against 2025 Planning Calendar (4-week March)
+    { month:"F. January",   start:new Date(2025,0,1),   end:new Date(2025,0,27)  },
+    { month:"F. February",  start:new Date(2025,0,27),  end:new Date(2025,1,24)  },
+    { month:"F. March",     start:new Date(2025,1,24),  end:new Date(2025,2,24)  },
+    { month:"F. April",     start:new Date(2025,2,24),  end:new Date(2025,3,21)  },
+    { month:"F. May",       start:new Date(2025,3,21),  end:new Date(2025,4,19)  },
+    { month:"F. June",      start:new Date(2025,4,19),  end:new Date(2025,5,23)  },
+    { month:"F. July",      start:new Date(2025,5,23),  end:new Date(2025,6,21)  },
+    { month:"F. August",    start:new Date(2025,6,21),  end:new Date(2025,7,18)  },
+    { month:"F. September", start:new Date(2025,7,18),  end:new Date(2025,8,22)  },
+    { month:"F. October",   start:new Date(2025,8,22),  end:new Date(2025,9,20)  },
+    { month:"F. November",  start:new Date(2025,9,20),  end:new Date(2025,10,24) },
+    { month:"F. December",  start:new Date(2025,10,24), end:new Date(2026,0,1)   },
+  ],
+  2026: [
+    { month:"F. January",   start:new Date(2026,0,1),   end:new Date(2026,0,26)  },
+    { month:"F. February",  start:new Date(2026,0,26),  end:new Date(2026,1,23)  },
+    { month:"F. March",     start:new Date(2026,1,23),  end:new Date(2026,2,30)  },
+    { month:"F. April",     start:new Date(2026,2,30),  end:new Date(2026,3,27)  },
+    { month:"F. May",       start:new Date(2026,3,27),  end:new Date(2026,4,25)  },
+    { month:"F. June",      start:new Date(2026,4,25),  end:new Date(2026,5,29)  },
+    { month:"F. July",      start:new Date(2026,5,29),  end:new Date(2026,6,27)  },
+    { month:"F. August",    start:new Date(2026,6,27),  end:new Date(2026,7,31)  },
+    { month:"F. September", start:new Date(2026,7,31),  end:new Date(2026,8,28)  },
+    { month:"F. October",   start:new Date(2026,8,28),  end:new Date(2026,9,26)  },
+    { month:"F. November",  start:new Date(2026,9,26),  end:new Date(2026,10,23) },
+    { month:"F. December",  start:new Date(2026,10,23), end:new Date(2027,0,1)   },
+  ],
+};
+
+const FM_ORDER = [
+  "F. January","F. February","F. March","F. April","F. May","F. June",
+  "F. July","F. August","F. September","F. October","F. November","F. December"
+];
+
+const YEAR_COLORS = { 2024:"#A78BFA", 2025:"#4F91D6", 2026:"#2BAD82" };
+const ALL_YEARS   = [2024, 2025, 2026];
+
+function getFiscalMonth(date, year) {
+  for (const { month, start, end } of (FISCAL[year] || [])) {
+    if (date >= start && date < end) return month;
+  }
+  return null;
+}
+
+// ── Parse Excel ───────────────────────────────────────────────────────────────
+function parseSheet(wb, sheetName) {
+  const ws = wb.Sheets[sheetName];
+  if (!ws) return [];
+  const rows = XLSX.utils.sheet_to_json(ws, { header:1, defval:null });
+  const out = [];
+  for (let i = 2; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r[0]) continue;
+    const d = r[0] instanceof Date ? r[0] : new Date(r[0]);
+    if (isNaN(d)) continue;
+    const partsVar  = Number(r[3])  || 0;
+    const binsVar   = Number(r[6])  || 0;
+    const dollarVar = Number(r[10]) || 0;
+    out.push({
+      date: d,
+      num:      Number(r[1]) || 0,
+      partsSel: Number(r[2]) || 0,
+      partsVar,
+      binsSel:  Number(r[5]) || 0,
+      binsVar,
+      valSel:   Number(r[8]) || 0,
+      dollarVar,
+      partsErr: r[12] ? String(r[12]) : null,
+      notes:    r[13] ? String(r[13]) : null,
+      hasError: partsVar > 0 || binsVar > 0,
+      errorType: partsVar > 0 && dollarVar === 0 ? "location" : partsVar > 0 ? "qty" : null,
+    });
+  }
+  return out;
+}
+
+// ── Rollup helpers ────────────────────────────────────────────────────────────
+function rollupByMonth(rows, year) {
+  const acc = {};
+  FM_ORDER.forEach(m => { acc[m] = { counts:0,partsSel:0,partsVar:0,binsSel:0,binsVar:0,valSel:0,dollarVar:0 }; });
+  for (const r of rows) {
+    const fm = getFiscalMonth(r.date, year);
+    if (fm && acc[fm]) {
+      const a = acc[fm];
+      a.counts++; a.partsSel+=r.partsSel; a.partsVar+=r.partsVar;
+      a.binsSel+=r.binsSel; a.binsVar+=r.binsVar;
+      a.valSel+=r.valSel; a.dollarVar+=r.dollarVar;
+    }
+  }
+  return FM_ORDER.filter(m => acc[m].counts > 0).map(m => ({
+    month:m, ...acc[m],
+    partAcc:  acc[m].partsSel > 0 ? +((1-acc[m].partsVar/acc[m].partsSel)*100).toFixed(1) : 100,
+    binAcc:   acc[m].binsSel  > 0 ? +((1-acc[m].binsVar/acc[m].binsSel)*100).toFixed(1)   : 100,
+    avgParts: acc[m].counts   > 0 ? +(acc[m].partsSel/acc[m].counts).toFixed(1)            : 0,
+  }));
+}
+
+function ytdTotals(rows) {
+  const t = { counts:rows.length,partsSel:0,partsVar:0,binsSel:0,binsVar:0,valSel:0,dollarVar:0,errorDays:0 };
+  for (const r of rows) {
+    t.partsSel+=r.partsSel; t.partsVar+=r.partsVar;
+    t.binsSel+=r.binsSel;   t.binsVar+=r.binsVar;
+    t.valSel+=r.valSel;     t.dollarVar+=r.dollarVar;
+    if (r.hasError) t.errorDays++;
+  }
+  t.partAcc = t.partsSel > 0 ? +((1-t.partsVar/t.partsSel)*100).toFixed(1) : 100;
+  t.binAcc  = t.binsSel  > 0 ? +((1-t.binsVar/t.binsSel)*100).toFixed(1)   : 100;
+  return t;
+}
+
+// ── Formatting ────────────────────────────────────────────────────────────────
+const fmtVal   = v => Math.abs(v)>=1e6?`$${(v/1e6).toFixed(2)}M`:Math.abs(v)>=1e3?`$${(Math.abs(v)/1e3).toFixed(0)}k`:`$${Math.abs(v).toFixed(0)}`;
+const accColor = v => v==null?"#555":v>=99?"#2BAD82":v>=97?"#E0A030":"#E05555";
+const varColor = v => v===0?"#555":v>500?"#E05555":v<0?"#2BAD82":"#E0A030";
+const fmtVar   = v => v===0?"—":(v>0?"$":"-$")+Math.abs(v).toLocaleString("en-US",{maximumFractionDigits:0});
+
+function calcDelta(a, b, lowerIsBetter=false) {
+  const diff=b-a, pct=a!==0?((diff/Math.abs(a))*100).toFixed(1):null;
+  const good=lowerIsBetter?diff<=0:diff>=0, sign=diff>=0?"+":"";
+  const text=`${sign}${Math.abs(diff)>=1000?fmtVal(diff):Number.isInteger(diff)?diff:diff.toFixed(1)}${pct?` (${sign}${pct}%)`:""}`;
+  return { text, good };
+}
+
+// ── Summary generation ────────────────────────────────────────────────────────
+function generateSingleSummary(tot, monthly) {
+  if (!tot || !monthly.length) return "";
+  const lines = [];
+
+  // Volume
+  const avgParts = (tot.partsSel / tot.counts).toFixed(1);
+  const avgVal   = fmtVal(tot.valSel / tot.counts);
+  lines.push(`Through ${tot.counts} cycle counts YTD, ${tot.partsSel.toLocaleString()} parts across ${tot.binsSel.toLocaleString()} bins have been audited, verifying ${fmtVal(tot.valSel)} in inventory value at an average of ${avgParts} parts and ${avgVal} per count.`);
+
+  // Accuracy
+  if (tot.partsVar === 0) {
+    lines.push(`Accuracy has been perfect across all counts — no part or bin variances have been recorded YTD.`);
+  } else {
+    const worstM = [...monthly].sort((a,b)=>a.partAcc-b.partAcc)[0];
+    const locCount = monthly.reduce((s,m)=>s + (m.partsVar||0), 0);
+    lines.push(`Overall part accuracy stands at ${tot.partAcc}% with ${tot.partsVar} variance${tot.partsVar!==1?"s":""} across ${tot.errorDays} count day${tot.errorDays!==1?"s":""}. ${worstM.month} was the weakest period at ${worstM.partAcc}% part accuracy.`);
+  }
+
+  // Dollar variance
+  if (tot.dollarVar === 0) {
+    lines.push(`No dollar variance has been recorded — every discrepancy identified so far has been a location error with no inventory value impact.`);
+  } else {
+    const worstDvar = [...monthly].sort((a,b)=>Math.abs(b.dollarVar)-Math.abs(a.dollarVar))[0];
+    const sign = tot.dollarVar > 0 ? "positive" : "negative";
+    lines.push(`Total dollar variance is ${fmtVar(tot.dollarVar)} (${sign}), with ${worstDvar.month} accounting for the largest single-month impact at ${fmtVar(worstDvar.dollarVar)}.`);
+  }
+
+  return lines.join(" ");
+}
+
+function generateMultiSummary(years, totals, monthlys) {
+  if (!years.length) return "";
+  const lines = [];
+  const [earliest, latest] = [years[0], years[years.length-1]];
+  const tE = totals[earliest], tL = totals[latest];
+
+  // Count volume trend
+  const countDir = tL.counts > tE.counts ? "up" : tL.counts < tE.counts ? "down" : "flat";
+  const partsDir = tL.partsSel < tE.partsSel ? "fewer" : "more";
+  lines.push(`Comparing ${years.join(" to ")}, the number of cycle counts is ${countDir} (${tE.counts} → ${tL.counts}) while ${partsDir} parts are being audited per period (${tE.partsSel.toLocaleString()} → ${tL.partsSel.toLocaleString()}), reflecting a change in average count scope from ${(tE.partsSel/tE.counts).toFixed(1)} to ${(tL.partsSel/tL.counts).toFixed(1)} parts per count.`);
+
+  // Value trend
+  const valDiff = tL.valSel - tE.valSel;
+  const valPct  = ((valDiff / tE.valSel)*100).toFixed(1);
+  const valDir  = valDiff >= 0 ? "higher" : "lower";
+  lines.push(`Inventory value counted is ${fmtVal(Math.abs(valDiff))} ${valDir} in ${latest} vs ${earliest} (${valPct > 0 ? "+" : ""}${valPct}%), reaching ${fmtVal(tL.valSel)} YTD.`);
+
+  // Accuracy trend
+  const accDiff = (tL.partAcc - tE.partAcc).toFixed(1);
+  if (Math.abs(accDiff) < 0.2) {
+    lines.push(`Part accuracy has remained broadly consistent across all years at ${tL.partAcc}%.`);
+  } else {
+    const accDir = accDiff > 0 ? "improved" : "declined";
+    lines.push(`Part accuracy has ${accDir} from ${tE.partAcc}% in ${earliest} to ${tL.partAcc}% in ${latest} — a ${Math.abs(accDiff)} percentage point ${accDir === "improved" ? "gain" : "drop"}.`);
+  }
+
+  // Dollar variance trend
+  const dvarL = Math.abs(tL.dollarVar), dvarE = Math.abs(tE.dollarVar);
+  if (tL.dollarVar === 0 && tE.dollarVar === 0) {
+    lines.push(`Dollar variance has been zero across all compared years, with any discrepancies limited to location errors.`);
+  } else {
+    const dvarDir = dvarL > dvarE ? "higher" : "lower";
+    lines.push(`Dollar variance in ${latest} (${fmtVar(tL.dollarVar)||"$0"}) is ${dvarDir} than ${earliest} (${fmtVar(tE.dollarVar)||"$0"}), ${dvarL > dvarE ? "indicating more inventory value discrepancies this year" : "showing improvement in inventory value accuracy year over year"}.`);
+  }
+
+  return lines.join(" ");
+}
+
+const SummaryBox = ({ text }) => {
+  if (!text) return null;
+  return (
+    <div style={{ marginTop:20, background:"#12122a", border:"1px solid #1e1e3f", borderRadius:12, padding:"18px 20px" }}>
+      <div style={{ fontSize:10, color:"#555", letterSpacing:"0.07em", textTransform:"uppercase", marginBottom:10 }}>Summary</div>
+      <p style={{ fontSize:14, color:"#b0b0c8", lineHeight:1.75, margin:0 }}>{text}</p>
+    </div>
+  );
+};
+
+// ── Shared UI primitives ──────────────────────────────────────────────────────
+const axisP = { tick:{fill:"#555",fontSize:10}, axisLine:false, tickLine:false };
+const gridP = { strokeDasharray:"3 3", stroke:"#1e1e3f" };
+
+const ChartTip = ({ active, payload, label, prefix="", suffix="" }) => {
+  if (!active||!payload?.length) return null;
+  return (
+    <div style={{ background:"#1a1a2e",border:"1px solid #2a2a50",borderRadius:8,padding:"10px 14px",fontSize:12 }}>
+      <div style={{ color:"#aaa",marginBottom:6,fontWeight:600 }}>{label}</div>
+      {payload.map((p,i)=>(
+        <div key={i} style={{ color:p.color,marginBottom:2 }}>
+          {p.name}: <strong>{prefix}{typeof p.value==="number"?p.value.toLocaleString("en-US",{maximumFractionDigits:2}):p.value}{suffix}</strong>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+const ChartBox = ({ title, height=190, children }) => (
+  <div style={{ background:"#12122a",border:"1px solid #1e1e3f",borderRadius:12,padding:"16px 14px" }}>
+    <div style={{ fontSize:10,color:"#555",marginBottom:12,letterSpacing:"0.07em",textTransform:"uppercase" }}>{title}</div>
+    <ResponsiveContainer width="100%" height={height}>{children}</ResponsiveContainer>
+  </div>
+);
+
+function Tabs({ tab, setTab, tabs }) {
+  return (
+    <div style={{ display:"flex",gap:3,marginBottom:22,background:"#12122a",borderRadius:10,padding:3,width:"fit-content" }}>
+      {tabs.map(([id,label])=>(
+        <button key={id} onClick={()=>setTab(id)} style={{
+          padding:"7px 16px",borderRadius:7,border:"none",cursor:"pointer",fontSize:13,fontWeight:500,
+          background:tab===id?"#1e1e45":"transparent",color:tab===id?"#e8e8f0":"#555" }}>
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function YearLegend({ years }) {
+  return (
+    <div style={{ display:"flex",gap:16,marginBottom:18 }}>
+      {years.map(yr=>(
+        <span key={yr} style={{ display:"flex",alignItems:"center",gap:6,fontSize:13,color:"#aaa" }}>
+          <span style={{ width:12,height:12,borderRadius:3,background:YEAR_COLORS[yr],display:"inline-block" }}/>
+          {yr}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+// ── Variance Log ──────────────────────────────────────────────────────────────
+function VarianceLog({ rows, year }) {
+  if (!rows.length) return <div style={{ color:"#555",fontSize:14,padding:"20px 0" }}>No variances recorded YTD.</div>;
+  return (
+    <div>
+      <div style={{ fontSize:13,color:"#555",marginBottom:16 }}>{rows.length} variance event{rows.length!==1?"s":""} in {year} YTD</div>
+      <table style={{ width:"100%",borderCollapse:"collapse",fontSize:13 }}>
+        <thead>
+          <tr>{["Date","Count #","Fiscal Month","Part(s)","$ Variance","Type","Notes"].map(h=>(
+            <th key={h} style={{ textAlign:"left",padding:"10px 10px",color:"#555",fontWeight:500,borderBottom:"1px solid #1e1e3f",whiteSpace:"nowrap" }}>{h}</th>
+          ))}</tr>
+        </thead>
+        <tbody>
+          {rows.map((r,i)=>{
+            const fm=getFiscalMonth(r.date,year)??"—";
+            const type=r.errorType==="location"?"Wrong location":r.errorType==="qty"?"Qty mismatch":"Variance";
+            const tc=r.errorType==="location"?"#c87d30":"#E05555";
+            const tbg=r.errorType==="location"?"rgba(200,125,48,0.12)":"rgba(224,85,85,0.12)";
+            return (
+              <tr key={i} style={{ borderBottom:"1px solid #1a1a30",background:i%2===0?"transparent":"#0f0f25" }}>
+                <td style={{ padding:"10px 10px",fontFamily:"'DM Mono',monospace",fontSize:12 }}>
+                  {r.date.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}
+                </td>
+                <td style={{ padding:"10px 10px" }}>#{r.num}</td>
+                <td style={{ padding:"10px 10px",color:"#777" }}>{fm}</td>
+                <td style={{ padding:"10px 10px",fontFamily:"'DM Mono',monospace",fontSize:12 }}>{r.partsErr??"—"}</td>
+                <td style={{ padding:"10px 10px",fontFamily:"'DM Mono',monospace",fontSize:12,
+                  color:r.dollarVar===0?"#555":r.dollarVar>0?"#E05555":"#2BAD82" }}>
+                  {r.dollarVar===0?"—":(r.dollarVar>0?"$":"-$")+Math.abs(r.dollarVar).toLocaleString("en-US",{maximumFractionDigits:2})}
+                </td>
+                <td style={{ padding:"10px 10px" }}>
+                  <span style={{ background:tbg,color:tc,fontSize:11,padding:"3px 9px",borderRadius:20 }}>{type}</span>
+                </td>
+                <td style={{ padding:"10px 10px",color:"#666",fontSize:12,maxWidth:240,wordBreak:"break-word" }}>{r.notes??"—"}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ── Shared multi-year charts & table ─────────────────────────────────────────
+function MultiYearCharts({ years, monthlys, merged }) {
+  return (<>
+    <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:14 }}>
+      <ChartBox title="Value counted by fiscal month">
+        <BarChart data={merged} barGap={3}>
+          <CartesianGrid {...gridP}/><XAxis dataKey="month" {...axisP} tickFormatter={v=>v.split(" ")[1]}/>
+          <YAxis {...axisP} tickFormatter={v=>"$"+(v/1e6).toFixed(1)+"M"}/>
+          <Tooltip content={<ChartTip prefix="$"/>}/>
+          {years.map(yr=><Bar key={yr} dataKey={`val${yr}`} name={String(yr)} fill={YEAR_COLORS[yr]} radius={[4,4,0,0]}/>)}
+        </BarChart>
+      </ChartBox>
+      <ChartBox title="Part accuracy by fiscal month">
+        <LineChart data={merged}>
+          <CartesianGrid {...gridP}/><XAxis dataKey="month" {...axisP} tickFormatter={v=>v.split(" ")[1]}/>
+          <YAxis {...axisP} domain={[92,101]} tickFormatter={v=>v+"%"}/>
+          <Tooltip content={<ChartTip suffix="%"/>}/>
+          <ReferenceLine y={100} stroke="#333" strokeDasharray="4 2"/>
+          {years.map(yr=><Line key={yr} dataKey={`acc${yr}`} name={String(yr)} stroke={YEAR_COLORS[yr]} strokeWidth={2} dot={{r:4,fill:YEAR_COLORS[yr]}} connectNulls/>)}
+        </LineChart>
+      </ChartBox>
+    </div>
+    <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:14 }}>
+      <ChartBox title="Avg parts per count">
+        <BarChart data={merged} barGap={3}>
+          <CartesianGrid {...gridP}/><XAxis dataKey="month" {...axisP} tickFormatter={v=>v.split(" ")[1]}/>
+          <YAxis {...axisP}/><Tooltip content={<ChartTip/>}/>
+          {years.map(yr=><Bar key={yr} dataKey={`parts${yr}`} name={String(yr)} fill={YEAR_COLORS[yr]} radius={[4,4,0,0]}/>)}
+        </BarChart>
+      </ChartBox>
+      <ChartBox title="Dollar variance by fiscal month">
+        <BarChart data={merged} barGap={3}>
+          <CartesianGrid {...gridP}/><XAxis dataKey="month" {...axisP} tickFormatter={v=>v.split(" ")[1]}/>
+          <YAxis {...axisP} tickFormatter={v=>"$"+v.toLocaleString()}/>
+          <Tooltip content={<ChartTip prefix="$"/>}/>
+          <ReferenceLine y={0} stroke="#444"/>
+          {years.map(yr=><Bar key={yr} dataKey={`dvar${yr}`} name={String(yr)} fill={YEAR_COLORS[yr]} radius={[4,4,0,0]}/>)}
+        </BarChart>
+      </ChartBox>
+    </div>
+  </>);
+}
+
+function MultiYearTable({ years, allMonths, monthlys, totals }) {
+  const cell = (yr, val, color) => (
+    <td key={yr} style={{ textAlign:"right",padding:"9px 8px",color:color||YEAR_COLORS[yr],fontSize:12 }}>{val??"—"}</td>
+  );
+  const COLS = ["Counts","Parts Sel.","Part Vars","Part Acc","Bins Sel.","Value","$ Variance"];
+  return (
+    <div style={{ overflowX:"auto" }}>
+      <table style={{ width:"100%",borderCollapse:"collapse",fontSize:12 }}>
+        <thead>
+          <tr style={{ borderBottom:"1px solid #1e1e3f" }}>
+            <th style={{ textAlign:"left",padding:"10px 10px",color:"#555",fontWeight:500 }}>Fiscal Month</th>
+            {COLS.map(h=>(
+              <th key={h} colSpan={years.length} style={{ textAlign:"center",padding:"10px 8px",color:"#555",fontWeight:500,whiteSpace:"nowrap" }}>{h}</th>
+            ))}
+          </tr>
+          <tr style={{ borderBottom:"2px solid #1e1e3f" }}>
+            <th/>
+            {COLS.flatMap((_,i)=>years.map(yr=>(
+              <th key={i+"-"+yr} style={{ textAlign:"right",padding:"4px 8px",color:YEAR_COLORS[yr],fontSize:11,fontWeight:600 }}>{yr}</th>
+            )))}
+          </tr>
+        </thead>
+        <tbody>
+          {allMonths.map((m,i)=>{
+            const rs={};
+            years.forEach(yr=>{ rs[yr]=monthlys[yr]?.find(r=>r.month===m); });
+            return (
+              <tr key={m} style={{ borderBottom:"1px solid #1a1a30",background:i%2===0?"transparent":"#0f0f25" }}>
+                <td style={{ padding:"9px 10px",fontWeight:500 }}>{m}</td>
+                {years.map(yr=>cell(yr, rs[yr]?.counts))}
+                {years.map(yr=>cell(yr, rs[yr]?.partsSel))}
+                {years.map(yr=>cell(yr, rs[yr]?.partsVar))}
+                {years.map(yr=>cell(yr, rs[yr]?.partAcc!=null?rs[yr].partAcc+"%":null, accColor(rs[yr]?.partAcc)))}
+                {years.map(yr=>cell(yr, rs[yr]?.binsSel))}
+                {years.map(yr=>cell(yr, rs[yr]?fmtVal(rs[yr].valSel):null))}
+                {years.map(yr=>(
+                  <td key={yr} style={{ textAlign:"right",padding:"9px 8px",color:varColor(rs[yr]?.dollarVar??0),fontFamily:"'DM Mono',monospace",fontSize:11 }}>
+                    {rs[yr]?fmtVar(rs[yr].dollarVar):"—"}
+                  </td>
+                ))}
+              </tr>
+            );
+          })}
+          <tr style={{ borderTop:"2px solid #2a2a50",fontWeight:600 }}>
+            <td style={{ padding:"12px 10px" }}>YTD Total</td>
+            {years.map(yr=><td key={yr} style={{ textAlign:"right",padding:"12px 8px",color:YEAR_COLORS[yr] }}>{totals[yr].counts}</td>)}
+            {years.map(yr=><td key={yr} style={{ textAlign:"right",padding:"12px 8px",color:YEAR_COLORS[yr] }}>{totals[yr].partsSel.toLocaleString()}</td>)}
+            {years.map(yr=><td key={yr} style={{ textAlign:"right",padding:"12px 8px",color:YEAR_COLORS[yr] }}>{totals[yr].partsVar}</td>)}
+            {years.map(yr=><td key={yr} style={{ textAlign:"right",padding:"12px 8px",color:accColor(totals[yr].partAcc) }}>{totals[yr].partAcc}%</td>)}
+            {years.map(yr=><td key={yr} style={{ textAlign:"right",padding:"12px 8px",color:YEAR_COLORS[yr] }}>{totals[yr].binsSel.toLocaleString()}</td>)}
+            {years.map(yr=><td key={yr} style={{ textAlign:"right",padding:"12px 8px",color:YEAR_COLORS[yr] }}>{fmtVal(totals[yr].valSel)}</td>)}
+            {years.map(yr=>(
+              <td key={yr} style={{ textAlign:"right",padding:"12px 8px",color:varColor(totals[yr].dollarVar),fontFamily:"'DM Mono',monospace",fontSize:11 }}>
+                {fmtVar(totals[yr].dollarVar)||"$0"}
+              </td>
+            ))}
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// VIEW: 2026 Only
+// ══════════════════════════════════════════════════════════════════════════════
+function SingleYearView({ rows26 }) {
+  const [tab, setTab] = useState("overview");
+  const tot     = ytdTotals(rows26);
+  const monthly = rollupByMonth(rows26, 2026);
+  const C       = YEAR_COLORS[2026];
+
+  const KPI = ({ label, value, sub, color }) => (
+    <div style={{ background:"#12122a",border:"1px solid #1e1e3f",borderRadius:12,padding:"16px 18px" }}>
+      <div style={{ fontSize:10,color:"#555",letterSpacing:"0.07em",textTransform:"uppercase",marginBottom:8 }}>{label}</div>
+      <div style={{ fontSize:24,fontWeight:700,color:color||C,fontFamily:"'DM Mono',monospace" }}>{value}</div>
+      {sub && <div style={{ fontSize:12,color:"#555",marginTop:4 }}>{sub}</div>}
+    </div>
+  );
+
+  return (
+    <>
+      <Tabs tab={tab} setTab={setTab} tabs={[["overview","Overview"],["monthly","By Fiscal Month"],["errors","Variance Log"]]} />
+      {tab==="overview" && (<>
+        <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(165px,1fr))",gap:12,marginBottom:22 }}>
+          <KPI label="Counts YTD"      value={tot.counts}                    sub={`${tot.errorDays} day${tot.errorDays!==1?"s":""} with variances`} />
+          <KPI label="Parts Audited"   value={tot.partsSel.toLocaleString()}  sub={`${tot.partsVar} variances`} />
+          <KPI label="Bins Audited"    value={tot.binsSel.toLocaleString()}    sub={`${tot.binsVar} variances`} />
+          <KPI label="Value Counted"   value={fmtVal(tot.valSel)} />
+          <KPI label="Part Accuracy"   value={tot.partAcc+"%"}  color={accColor(tot.partAcc)} />
+          <KPI label="Bin Accuracy"    value={tot.binAcc+"%"}   color={accColor(tot.binAcc)} />
+          <KPI label="Dollar Variance" value={tot.dollarVar===0?"$0":fmtVar(tot.dollarVar)} color={varColor(tot.dollarVar)} />
+        </div>
+        <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:14 }}>
+          <ChartBox title="Value counted by fiscal month">
+            <BarChart data={monthly}>
+              <CartesianGrid {...gridP}/><XAxis dataKey="month" {...axisP} tickFormatter={v=>v.split(" ")[1]}/>
+              <YAxis {...axisP} tickFormatter={v=>"$"+(v/1e6).toFixed(1)+"M"}/>
+              <Tooltip content={<ChartTip prefix="$"/>}/>
+              <Bar dataKey="valSel" name="Value" fill={C} radius={[4,4,0,0]}/>
+            </BarChart>
+          </ChartBox>
+          <ChartBox title="Part accuracy by fiscal month">
+            <LineChart data={monthly}>
+              <CartesianGrid {...gridP}/><XAxis dataKey="month" {...axisP} tickFormatter={v=>v.split(" ")[1]}/>
+              <YAxis {...axisP} domain={[92,101]} tickFormatter={v=>v+"%"}/>
+              <Tooltip content={<ChartTip suffix="%"/>}/>
+              <ReferenceLine y={100} stroke="#333" strokeDasharray="4 2"/>
+              <Line dataKey="partAcc" name="Part Acc" stroke={C} strokeWidth={2} dot={{r:4,fill:C}}/>
+            </LineChart>
+          </ChartBox>
+        </div>
+        <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:14 }}>
+          <ChartBox title="Parts & bins by fiscal month">
+            <BarChart data={monthly} barGap={4}>
+              <CartesianGrid {...gridP}/><XAxis dataKey="month" {...axisP} tickFormatter={v=>v.split(" ")[1]}/>
+              <YAxis {...axisP}/><Tooltip content={<ChartTip/>}/>
+              <Bar dataKey="partsSel" name="Parts" fill={C}       radius={[4,4,0,0]}/>
+              <Bar dataKey="binsSel"  name="Bins"  fill="#7B5EA7" radius={[4,4,0,0]}/>
+            </BarChart>
+          </ChartBox>
+          <ChartBox title="Dollar variance by fiscal month">
+            <BarChart data={monthly}>
+              <CartesianGrid {...gridP}/><XAxis dataKey="month" {...axisP} tickFormatter={v=>v.split(" ")[1]}/>
+              <YAxis {...axisP} tickFormatter={v=>"$"+v.toLocaleString()}/>
+              <Tooltip content={<ChartTip prefix="$"/>}/>
+              <ReferenceLine y={0} stroke="#444"/>
+              <Bar dataKey="dollarVar" name="$ Variance" fill="#E05555" radius={[4,4,0,0]}/>
+            </BarChart>
+          </ChartBox>
+        </div>
+        <SummaryBox text={generateSingleSummary(tot, monthly)}/>
+      </>)}
+      {tab==="monthly" && (
+        <div style={{ overflowX:"auto" }}>
+          <table style={{ width:"100%",borderCollapse:"collapse",fontSize:13 }}>
+            <thead>
+              <tr style={{ borderBottom:"2px solid #1e1e3f" }}>
+                {["Fiscal Month","Counts","Parts","Part Vars","Part Acc","Bins","Bin Vars","Bin Acc","Value Counted","$ Variance"].map(h=>(
+                  <th key={h} style={{ textAlign:h==="Fiscal Month"?"left":"right",padding:"10px 10px",color:"#555",fontWeight:500,whiteSpace:"nowrap" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {monthly.map((r,i)=>(
+                <tr key={r.month} style={{ borderBottom:"1px solid #1a1a30",background:i%2===0?"transparent":"#0f0f25" }}>
+                  <td style={{ padding:"10px 10px",fontWeight:500 }}>{r.month}</td>
+                  <td style={{ textAlign:"right",padding:"10px 10px" }}>{r.counts}</td>
+                  <td style={{ textAlign:"right",padding:"10px 10px" }}>{r.partsSel}</td>
+                  <td style={{ textAlign:"right",padding:"10px 10px" }}>{r.partsVar}</td>
+                  <td style={{ textAlign:"right",padding:"10px 10px",color:accColor(r.partAcc) }}>{r.partAcc}%</td>
+                  <td style={{ textAlign:"right",padding:"10px 10px" }}>{r.binsSel}</td>
+                  <td style={{ textAlign:"right",padding:"10px 10px" }}>{r.binsVar}</td>
+                  <td style={{ textAlign:"right",padding:"10px 10px",color:accColor(r.binAcc) }}>{r.binAcc}%</td>
+                  <td style={{ textAlign:"right",padding:"10px 10px" }}>{fmtVal(r.valSel)}</td>
+                  <td style={{ textAlign:"right",padding:"10px 10px",color:varColor(r.dollarVar),fontFamily:"'DM Mono',monospace",fontSize:12 }}>{fmtVar(r.dollarVar)}</td>
+                </tr>
+              ))}
+              <tr style={{ borderTop:"2px solid #2a2a50",fontWeight:600 }}>
+                <td style={{ padding:"12px 10px" }}>YTD Total</td>
+                <td style={{ textAlign:"right",padding:"12px 10px" }}>{tot.counts}</td>
+                <td style={{ textAlign:"right",padding:"12px 10px" }}>{tot.partsSel.toLocaleString()}</td>
+                <td style={{ textAlign:"right",padding:"12px 10px" }}>{tot.partsVar}</td>
+                <td style={{ textAlign:"right",padding:"12px 10px",color:accColor(tot.partAcc) }}>{tot.partAcc}%</td>
+                <td style={{ textAlign:"right",padding:"12px 10px" }}>{tot.binsSel.toLocaleString()}</td>
+                <td style={{ textAlign:"right",padding:"12px 10px" }}>{tot.binsVar}</td>
+                <td style={{ textAlign:"right",padding:"12px 10px",color:accColor(tot.binAcc) }}>{tot.binAcc}%</td>
+                <td style={{ textAlign:"right",padding:"12px 10px" }}>{fmtVal(tot.valSel)}</td>
+                <td style={{ textAlign:"right",padding:"12px 10px",color:varColor(tot.dollarVar),fontFamily:"'DM Mono',monospace",fontSize:12 }}>{fmtVar(tot.dollarVar)||"$0"}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+      {tab==="errors" && <VarianceLog rows={rows26.filter(r=>r.hasError)} year={2026}/>}
+    </>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// VIEW: Pick Any Two Years
+// ══════════════════════════════════════════════════════════════════════════════
+function TwoYearView({ alignedData, availableYears }) {
+  const [tab, setTab]     = useState("overview");
+  const [yearA, setYearA] = useState(availableYears[availableYears.length-2] ?? availableYears[0]);
+  const [yearB, setYearB] = useState(availableYears[availableYears.length-1]);
+
+  const years = [yearA, yearB].sort((a,b)=>a-b);
+  const monthlys = {}, totals = {};
+  years.forEach(yr => {
+    monthlys[yr] = rollupByMonth(alignedData[yr]||[], yr);
+    totals[yr]   = ytdTotals(alignedData[yr]||[]);
+  });
+  const allMonths = FM_ORDER.filter(m => years.some(yr=>monthlys[yr].find(r=>r.month===m)));
+  const merged = allMonths.map(m => {
+    const obj = { month:m };
+    years.forEach(yr => {
+      const r = monthlys[yr].find(x=>x.month===m);
+      obj[`val${yr}`]=r?.valSel??0; obj[`acc${yr}`]=r?.partAcc??null;
+      obj[`parts${yr}`]=r?.avgParts??0; obj[`dvar${yr}`]=r?.dollarVar??0;
+    });
+    return obj;
+  });
+
+  const YearBtn = ({ yr, selected, other, onSelect }) => {
+    const disabled = yr === other;
+    return (
+      <button onClick={()=>!disabled&&onSelect(yr)} style={{
+        padding:"5px 12px",borderRadius:6,border:`1px solid ${selected?YEAR_COLORS[yr]:"#2a2a50"}`,
+        cursor:disabled?"not-allowed":"pointer",fontSize:12,fontWeight:500,
+        background:selected?`${YEAR_COLORS[yr]}22`:"transparent",
+        color:selected?YEAR_COLORS[yr]:disabled?"#333":"#666",
+        opacity:disabled?0.4:1 }}>
+        {yr}
+      </button>
+    );
+  };
+
+  const StatCard = ({ label, fmt, field, lowerIsBetter=false }) => {
+    const [a,b] = years;
+    const d = calcDelta(totals[a][field], totals[b][field], lowerIsBetter);
+    return (
+      <div style={{ background:"#12122a",border:"1px solid #1e1e3f",borderRadius:12,padding:"16px 18px" }}>
+        <div style={{ fontSize:10,color:"#555",letterSpacing:"0.07em",textTransform:"uppercase",marginBottom:10 }}>{label}</div>
+        <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-end",marginBottom:8 }}>
+          {years.map(yr=>(
+            <div key={yr} style={{ textAlign:yr===years[0]?"left":"right" }}>
+              <div style={{ fontSize:10,color:YEAR_COLORS[yr],marginBottom:3 }}>{yr}</div>
+              <div style={{ fontSize:19,fontWeight:700,color:YEAR_COLORS[yr],fontFamily:"'DM Mono',monospace" }}>{fmt(totals[yr][field])}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{ fontSize:11,padding:"3px 9px",borderRadius:20,display:"inline-block",
+          background:d.good?"rgba(43,173,130,0.15)":"rgba(220,70,70,0.15)",
+          color:d.good?"#2BAD82":"#E05555" }}>{d.text}</div>
+      </div>
+    );
+  };
+
+  return (
+    <>
+      {/* Year picker */}
+      <div style={{ display:"flex",alignItems:"center",gap:12,marginBottom:22,flexWrap:"wrap" }}>
+        <span style={{ fontSize:12,color:"#555" }}>Compare:</span>
+        <div style={{ display:"flex",gap:6 }}>
+          {availableYears.map(yr=><YearBtn key={yr} yr={yr} selected={yr===yearA} other={yearB} onSelect={setYearA}/>)}
+        </div>
+        <span style={{ fontSize:12,color:"#555" }}>vs</span>
+        <div style={{ display:"flex",gap:6 }}>
+          {availableYears.map(yr=><YearBtn key={yr} yr={yr} selected={yr===yearB} other={yearA} onSelect={setYearB}/>)}
+        </div>
+      </div>
+
+      <Tabs tab={tab} setTab={setTab} tabs={[["overview","Overview"],["monthly","By Fiscal Month"],["errors","Variance Log"]]} />
+
+      {tab==="overview" && (<>
+        <YearLegend years={years}/>
+        <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))",gap:12,marginBottom:22 }}>
+          <StatCard label="Cycle Counts"    field="counts"    fmt={v=>v} />
+          <StatCard label="Parts Audited"   field="partsSel"  fmt={v=>v.toLocaleString()} lowerIsBetter />
+          <StatCard label="Value Counted"   field="valSel"    fmt={fmtVal} lowerIsBetter />
+          <StatCard label="Part Accuracy"   field="partAcc"   fmt={v=>v+"%"} />
+          <StatCard label="Part Variances"  field="partsVar"  fmt={v=>v} lowerIsBetter />
+          <StatCard label="Dollar Variance" field="dollarVar" fmt={v=>"$"+Math.abs(v).toLocaleString("en-US",{maximumFractionDigits:0})} lowerIsBetter />
+        </div>
+        <MultiYearCharts years={years} monthlys={monthlys} merged={merged}/>
+        <SummaryBox text={generateMultiSummary(years, totals, monthlys)}/>
+      </>)}
+
+      {tab==="monthly" && <MultiYearTable years={years} allMonths={allMonths} monthlys={monthlys} totals={totals}/>}
+
+      {tab==="errors" && (
+        <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:20 }}>
+          {years.map(yr=>(
+            <div key={yr}>
+              <div style={{ fontSize:12,color:YEAR_COLORS[yr],fontWeight:600,marginBottom:12 }}>{yr} Variances</div>
+              <VarianceLog rows={(alignedData[yr]||[]).filter(r=>r.hasError)} year={yr}/>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// VIEW: All Three Years
+// ══════════════════════════════════════════════════════════════════════════════
+function ThreeYearView({ alignedData, availableYears }) {
+  const [tab, setTab] = useState("overview");
+  const years = availableYears;
+  const monthlys={}, totals={};
+  years.forEach(yr=>{ monthlys[yr]=rollupByMonth(alignedData[yr]||[],yr); totals[yr]=ytdTotals(alignedData[yr]||[]); });
+  const allMonths = FM_ORDER.filter(m=>years.some(yr=>monthlys[yr].find(r=>r.month===m)));
+  const merged = allMonths.map(m=>{
+    const obj={month:m};
+    years.forEach(yr=>{
+      const r=monthlys[yr].find(x=>x.month===m);
+      obj[`val${yr}`]=r?.valSel??0; obj[`acc${yr}`]=r?.partAcc??null;
+      obj[`parts${yr}`]=r?.avgParts??0; obj[`dvar${yr}`]=r?.dollarVar??0;
+    });
+    return obj;
+  });
+
+  const StatCard = ({ label, fmt, field, lowerIsBetter=false }) => {
+    const [a,,c] = years;
+    const d = calcDelta(totals[a][field], totals[c][field], lowerIsBetter);
+    return (
+      <div style={{ background:"#12122a",border:"1px solid #1e1e3f",borderRadius:12,padding:"16px 18px" }}>
+        <div style={{ fontSize:10,color:"#555",letterSpacing:"0.07em",textTransform:"uppercase",marginBottom:10 }}>{label}</div>
+        <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-end",gap:4,marginBottom:8 }}>
+          {years.map(yr=>(
+            <div key={yr} style={{ textAlign:"center" }}>
+              <div style={{ fontSize:10,color:YEAR_COLORS[yr],marginBottom:3 }}>{yr}</div>
+              <div style={{ fontSize:16,fontWeight:700,color:YEAR_COLORS[yr],fontFamily:"'DM Mono',monospace" }}>{fmt(totals[yr][field])}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{ fontSize:11,padding:"3px 9px",borderRadius:20,display:"inline-block",
+          background:d.good?"rgba(43,173,130,0.15)":"rgba(220,70,70,0.15)",
+          color:d.good?"#2BAD82":"#E05555" }}>{years[0]}→{years[years.length-1]}: {d.text}</div>
+      </div>
+    );
+  };
+
+  return (
+    <>
+      <Tabs tab={tab} setTab={setTab} tabs={[["overview","Overview"],["monthly","By Fiscal Month"],["errors","Variance Logs"]]}/>
+      {tab==="overview" && (<>
+        <YearLegend years={years}/>
+        <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))",gap:12,marginBottom:22 }}>
+          <StatCard label="Cycle Counts"    field="counts"    fmt={v=>v} />
+          <StatCard label="Parts Audited"   field="partsSel"  fmt={v=>v.toLocaleString()} lowerIsBetter />
+          <StatCard label="Value Counted"   field="valSel"    fmt={fmtVal} lowerIsBetter />
+          <StatCard label="Part Accuracy"   field="partAcc"   fmt={v=>v+"%"} />
+          <StatCard label="Part Variances"  field="partsVar"  fmt={v=>v} lowerIsBetter />
+          <StatCard label="Dollar Variance" field="dollarVar" fmt={v=>"$"+Math.abs(v).toLocaleString("en-US",{maximumFractionDigits:0})} lowerIsBetter />
+        </div>
+        <MultiYearCharts years={years} monthlys={monthlys} merged={merged}/>
+        <SummaryBox text={generateMultiSummary(years, totals, monthlys)}/>
+      </>)}
+      {tab==="monthly" && <MultiYearTable years={years} allMonths={allMonths} monthlys={monthlys} totals={totals}/>}
+      {tab==="errors" && (
+        <div style={{ display:"grid",gridTemplateColumns:`repeat(${years.length},1fr)`,gap:20 }}>
+          {years.map(yr=>(
+            <div key={yr}>
+              <div style={{ fontSize:12,color:YEAR_COLORS[yr],fontWeight:600,marginBottom:12 }}>{yr} Variances</div>
+              <VarianceLog rows={(alignedData[yr]||[]).filter(r=>r.hasError)} year={yr}/>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ROOT APP
+// ══════════════════════════════════════════════════════════════════════════════
+function App() {
+  const [rawData, setRawData]         = useState({});
+  const [lastUpdated, setLastUpdated] = useState(null);
+  const [loading, setLoading]         = useState(false);
+  const [error, setError]             = useState(null);
+  const [mode, setMode]               = useState("single");
+  const fileRef = useRef();
+
+  useEffect(()=>{
+    (async()=>{
+      try {
+        const stored={};
+        for (const yr of ALL_YEARS) {
+          const r = (await Promise.resolve({value: localStorage.getItem(`cc_data_${yr}`)}));
+          if (r && r.value) stored[yr]=JSON.parse(r.value).map(x=>({...x,date:new Date(x.date)}));
+        }
+        if (Object.keys(stored).length) { setRawData(stored); }
+        const rts = (await Promise.resolve({value: localStorage.getItem("cc_updated")}));
+        if (rts && rts.value) setLastUpdated(rts.value);
+      } catch(e){}
+    })();
+  },[]);
+
+  const handleFile = useCallback(async(file)=>{
+    if(!file) return;
+    setLoading(true); setError(null);
+    try {
+      const buf=await file.arrayBuffer();
+      const wb=XLSX.read(buf,{type:"array",cellDates:true});
+      if(!wb.Sheets["2026"]) throw new Error("File must have at least a '2026' tab.");
+      const newData={};
+      for (const yr of ALL_YEARS) {
+        if(wb.Sheets[String(yr)]) newData[yr]=parseSheet(wb,String(yr));
+      }
+      const ts=new Date().toLocaleString();
+      for (const [yr,rows] of Object.entries(newData)) {
+        localStorage.setItem(`cc_data_${yr}`,JSON.stringify(rows));
+      }
+      localStorage.setItem("cc_updated",ts);
+      setRawData(newData); setLastUpdated(ts);
+    } catch(e){ setError(e.message); }
+    setLoading(false);
+  },[]);
+
+  // Align all years to 2026's latest date
+  const cutoff26 = rawData[2026]?.length ? new Date(Math.max(...rawData[2026].map(r=>r.date))) : null;
+  const alignedData={};
+  ALL_YEARS.forEach(yr=>{
+    if(!rawData[yr]) return;
+    if(yr===2026){ alignedData[yr]=rawData[yr]; return; }
+    const co = cutoff26 ? new Date(cutoff26.getFullYear()-(2026-yr),cutoff26.getMonth(),cutoff26.getDate()) : null;
+    alignedData[yr] = co ? rawData[yr].filter(r=>r.date<=co) : rawData[yr];
+  });
+
+  const availableYears = ALL_YEARS.filter(yr=>alignedData[yr]?.length>0);
+  const has26=availableYears.includes(2026);
+  const canTwo=availableYears.length>=2;
+  const canThree=availableYears.length>=3;
+
+  // Build cutoff info string
+  const cutoffInfo = cutoff26 ? availableYears.map(yr=>{
+    const co = yr===2026 ? cutoff26 : new Date(cutoff26.getFullYear()-(2026-yr),cutoff26.getMonth(),cutoff26.getDate());
+    return `${yr} through ${co.toLocaleDateString("en-US",{month:"short",day:"numeric"})}`;
+  }).join(" · ") : null;
+
+  const modeOptions = [
+    { id:"single",  label:"2026 Only",       show:has26 },
+    { id:"two",     label:"Pick Two Years",   show:canTwo },
+    { id:"three",   label:"All Three Years",  show:canThree },
+  ].filter(m=>m.show);
+
+  // Ensure mode is valid for available data
+  useEffect(()=>{
+    if(!modeOptions.find(m=>m.id===mode) && modeOptions.length) setMode(modeOptions[0].id);
+  },[availableYears.join(",")]);
+
+  return (
+    <div style={{ minHeight:"100vh",background:"#0d0d1f",color:"#e8e8f0",fontFamily:"'DM Sans', system-ui, sans-serif" }}>
+      <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+
+      {/* Header */}
+      <div style={{ borderBottom:"1px solid #1e1e3f",padding:"18px 28px",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:12 }}>
+        <div>
+          <div style={{ fontSize:20,fontWeight:600,letterSpacing:"-0.02em" }}>Cycle Count Dashboard</div>
+          <div style={{ fontSize:12,color:"#444",marginTop:3 }}>
+            {lastUpdated?`Last updated: ${lastUpdated}`:"No data loaded — upload your Excel file to begin"}
+            {cutoffInfo && <span style={{ color:"#333",marginLeft:10 }}>{cutoffInfo}</span>}
+          </div>
+        </div>
+        <div style={{ display:"flex",gap:10,alignItems:"center",flexWrap:"wrap" }}>
+          {has26 && modeOptions.length>1 && (
+            <div style={{ display:"flex",background:"#12122a",border:"1px solid #1e1e3f",borderRadius:9,padding:3,gap:3 }}>
+              {modeOptions.map(({id,label})=>(
+                <button key={id} onClick={()=>setMode(id)} style={{
+                  padding:"6px 14px",borderRadius:6,border:"none",cursor:"pointer",fontSize:12,fontWeight:500,
+                  background:mode===id?"#2BAD82":"transparent",
+                  color:mode===id?"#fff":"#555",transition:"all 0.15s" }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+          <button onClick={()=>fileRef.current.click()}
+            style={{ background:"#1e1e45",color:"#e8e8f0",border:"1px solid #2a2a60",borderRadius:8,
+              padding:"8px 16px",fontSize:13,fontWeight:500,cursor:"pointer" }}>
+            {loading?"Loading…":"↑ Upload Excel"}
+          </button>
+          <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display:"none" }}
+            onChange={e=>{ handleFile(e.target.files[0]); e.target.value=""; }}/>
+        </div>
+      </div>
+
+      {error && (
+        <div style={{ background:"rgba(220,70,70,0.1)",border:"1px solid rgba(220,70,70,0.25)",color:"#E05555",
+          margin:"16px 28px",borderRadius:8,padding:"12px 16px",fontSize:13 }}>⚠ {error}</div>
+      )}
+
+      {!has26 && !loading && (
+        <div onDrop={e=>{ e.preventDefault(); handleFile(e.dataTransfer?.files[0]); }}
+          onDragOver={e=>e.preventDefault()}
+          style={{ margin:"60px auto",maxWidth:500,border:"2px dashed #2a2a50",borderRadius:16,
+            padding:"60px 40px",textAlign:"center",cursor:"pointer" }}
+          onClick={()=>fileRef.current.click()}>
+          <div style={{ fontSize:40,marginBottom:16 }}>📊</div>
+          <div style={{ fontSize:16,fontWeight:600,marginBottom:10 }}>
+            {loading?"Parsing file…":"Drop your Excel file here"}
+          </div>
+          <div style={{ fontSize:13,color:"#555",lineHeight:1.8 }}>
+            Requires a <code style={{ background:"#1a1a2e",padding:"2px 6px",borderRadius:4 }}>2026</code> tab.<br/>
+            Add <code style={{ background:"#1a1a2e",padding:"2px 6px",borderRadius:4 }}>2025</code> to unlock <em>Pick Two Years</em>.<br/>
+            Add <code style={{ background:"#1a1a2e",padding:"2px 6px",borderRadius:4 }}>2024</code> to unlock <em>All Three Years</em>.
+          </div>
+        </div>
+      )}
+
+      {loading && <div style={{ textAlign:"center",padding:"80px 0",color:"#555",fontSize:14 }}>Parsing file…</div>}
+
+      {has26 && (
+        <div style={{ padding:"20px 28px" }}>
+          {mode==="single" && <SingleYearView rows26={alignedData[2026]}/>}
+          {mode==="two"    && canTwo  && <TwoYearView   alignedData={alignedData} availableYears={availableYears}/>}
+          {mode==="three"  && canThree && <ThreeYearView alignedData={alignedData} availableYears={availableYears}/>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AutoFetchApp() {
+  const [status, setStatus] = useState('loading');
+  const [errMsg, setErrMsg]  = useState('');
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const resp = await fetch('https://fushengoffice365.sharepoint.com/:x:/s/CycleCountDashboard/IQAuCoGiVdcFS4uznxffdA7VAVTOY2kOQUeDH7V68z_sCaQ?e=k5nkqv&download=1');
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const buf  = await resp.arrayBuffer();
+        const wb   = XLSX.read(new Uint8Array(buf), {type:'array', cellDates:true});
+        if (!wb.Sheets['2026']) throw new Error('Missing 2026 tab');
+        [2024,2025,2026].forEach(yr => {
+          if (wb.Sheets[String(yr)]) {
+            localStorage.setItem('cc_data_' + yr, JSON.stringify(parseSheet(wb, String(yr))));
+          }
+        });
+        localStorage.setItem('cc_updated', new Date().toLocaleString());
+        setStatus('done');
+      } catch(e) {
+        setErrMsg(e.message);
+        setStatus('error');
+      }
+    })();
+  }, []);
+
+  const banner = status === 'error'
+    ? React.createElement('div', {style:{background:'rgba(224,160,48,0.12)',borderBottom:'1px solid rgba(224,160,48,0.3)',color:'#E0A030',padding:'10px 28px',fontSize:12}},
+        '⚠ Could not auto-fetch from SharePoint (' + errMsg + '). Showing cached data. Use ↑ Upload Excel to refresh manually.')
+    : null;
+
+  if (status === 'loading') return React.createElement('div',
+    {style:{minHeight:'100vh',background:'#0d0d1f',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:16,color:'#555',fontFamily:"'DM Sans',system-ui,sans-serif"}},
+    React.createElement('div',{style:{fontSize:40}},'📊'),
+    React.createElement('div',{style:{fontSize:15,fontWeight:500,color:'#e8e8f0'}},'Loading latest data…'),
+    React.createElement('div',{style:{fontSize:12}},'Fetching from SharePoint')
+  );
+
+  return React.createElement(React.Fragment, null, banner, React.createElement(App, null));
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(React.createElement(AutoFetchApp));
+
+
+// Hide loader now that app is rendering
+if (window.__hideLoader) window.__hideLoader();
+  </script>
+
+</body>
+</html>
